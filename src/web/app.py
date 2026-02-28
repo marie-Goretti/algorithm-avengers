@@ -6,21 +6,30 @@ import threading
 import queue
 import json
 
-# ✅ Structure du projet :
-#   racine/
-#     main.py
-#     src/
-#       transfer/chunking.py
-#       network/packet.py
-#     web/
-#       app.py  ← CE FICHIER
+# ─────────────────────────────────────────────
+#  CHEMINS — CALCUL DEPUIS LA RACINE DU PROJET
 #
-# On remonte vers racine/ et on ajoute src/ au path Python
-_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+#  On lance toujours depuis la racine :
+#    cd algorithm-avengers
+#    python main.py --web
+#
+#  Donc os.getcwd() = racine du projet, toujours.
+#  C'est plus fiable que __file__ qui dépend de
+#  comment Python résout les chemins relatifs.
+# ─────────────────────────────────────────────
+
+# Racine du projet = là où on a lancé python main.py
+_ROOT = os.getcwd()
+_MANIFESTS = os.path.join(_ROOT, "manifests")
+
+# Ajouter src/ au path Python pour les imports internes
 _SRC = os.path.join(_ROOT, "src")
 for _p in [_ROOT, _SRC]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+# Dossier de ce fichier (src/web/) pour servir index.html
+_WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 CORS(app)
@@ -34,14 +43,46 @@ node_data = {
     "new_messages": queue.Queue(),
 }
 
+# ─────────────────────────────────────────────
+#  HELPERS
+# ─────────────────────────────────────────────
 
-# ── PAGE ──────────────────────────────────────
+
+def _nid_hex():
+    nid = node_data["node_id"]
+    if nid is None:
+        return None
+    if isinstance(nid, bytes):
+        return nid.hex()
+    if hasattr(nid, "encode"):
+        return nid.encode().hex()
+    return str(nid)
+
+
+def _nid_bytes():
+    nid = node_data["node_id"]
+    if isinstance(nid, bytes):
+        return nid
+    if hasattr(nid, "encode"):
+        return nid.encode()
+    return bytes(nid)
+
+
+# ─────────────────────────────────────────────
+#  PAGE
+# ─────────────────────────────────────────────
+
+
 @app.route("/")
 def index():
-    return send_from_directory(os.path.dirname(os.path.abspath(__file__)), "index.html")
+    return send_from_directory(_WEB_DIR, "index.html")
 
 
-# ── PEERS ─────────────────────────────────────
+# ─────────────────────────────────────────────
+#  PEERS
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/peers")
 def get_peers():
     if not node_data["peer_table"]:
@@ -52,15 +93,19 @@ def get_peers():
         return jsonify({"error": str(e)}), 500
 
 
-# ── FILES ─────────────────────────────────────
+# ─────────────────────────────────────────────
+#  FILES
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/files")
 def get_files():
     if not node_data["transfer_manager"]:
         return jsonify({})
     try:
-        raw = node_data["transfer_manager"].local_files  # {file_id: path}
         result = {}
-        for fid, fpath in raw.items():
+        for fid, fpath in node_data["transfer_manager"].local_files.items():
+            fpath = os.path.normpath(fpath)
             result[fid] = {
                 "path": fpath,
                 "filename": os.path.basename(fpath),
@@ -71,7 +116,11 @@ def get_files():
         return jsonify({"error": str(e)}), 500
 
 
-# ── STATUS ────────────────────────────────────
+# ─────────────────────────────────────────────
+#  STATUS
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/status")
 def get_status():
     msgs = []
@@ -81,11 +130,6 @@ def get_status():
         except queue.Empty:
             break
 
-    nid = node_data["node_id"]
-    node_id_hex = None
-    if nid is not None:
-        node_id_hex = nid.hex() if isinstance(nid, bytes) else nid.encode().hex()
-
     peer_count = 0
     if node_data["peer_table"]:
         try:
@@ -94,11 +138,19 @@ def get_status():
             pass
 
     return jsonify(
-        {"node_id": node_id_hex, "new_messages": msgs, "peer_count": peer_count}
+        {
+            "node_id": _nid_hex(),
+            "new_messages": msgs,
+            "peer_count": peer_count,
+        }
     )
 
 
-# ── SEND MESSAGE ──────────────────────────────
+# ─────────────────────────────────────────────
+#  ENVOI DE MESSAGE
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/send_msg", methods=["POST"])
 def send_msg():
     data = request.json
@@ -107,6 +159,7 @@ def send_msg():
 
     peer_prefix = data.get("to", "").strip()
     text = data.get("msg", "").strip()
+
     if not peer_prefix or not text:
         return jsonify({"error": 'Missing "to" or "msg"'}), 400
     if not node_data["messaging_manager"]:
@@ -130,18 +183,23 @@ def send_msg():
         ok = node_data["messaging_manager"].send_encrypted_msg(
             target_pid, pdata["ip"], pdata["tcp_port"], text
         )
-        return jsonify({"status": "OK"}) if ok else jsonify(
-            {"error": "send returned False"}
-        ), 500
+        return (
+            jsonify({"status": "OK"})
+            if ok
+            else (jsonify({"error": "send returned False"}), 500)
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# ── GEMINI ────────────────────────────────────
+# ─────────────────────────────────────────────
+#  GEMINI
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/gemini", methods=["POST"])
 def gemini_query():
-    data = request.json
-    text = (data or {}).get("msg", "").strip()
+    text = (request.json or {}).get("msg", "").strip()
     if not text:
         return jsonify({"error": 'Missing "msg"'}), 400
 
@@ -154,15 +212,22 @@ def gemini_query():
         return jsonify({"answer": f"[Gemini erreur] {e}"}), 200
 
 
-# ── SHARE FILE ────────────────────────────────
+# ─────────────────────────────────────────────
+#  PARTAGE DE FICHIER
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/share", methods=["POST"])
 def share_file():
     data = request.json
     if not data:
         return jsonify({"error": "No JSON body"}), 400
 
-    file_path = data.get("path", "").strip()
-    if not file_path:
+    # Normaliser le chemin Windows dès la réception
+    raw_path = data.get("path", "").strip()
+    file_path = os.path.normpath(raw_path)
+
+    if not file_path or file_path == ".":
         return jsonify({"error": 'Missing "path"'}), 400
     if not os.path.exists(file_path):
         return jsonify({"error": f"File not found: {file_path}"}), 404
@@ -170,45 +235,64 @@ def share_file():
         return jsonify({"error": "transfer_manager not initialized"}), 503
 
     try:
-        # ✅ Import depuis src/transfer/chunking.py
         from transfer.chunking import create_file_manifest
 
-        nid = node_data["node_id"]
-        nid_hex = nid.hex() if isinstance(nid, bytes) else nid.encode().hex()
-
-        manifest = create_file_manifest(file_path, nid_hex)
+        manifest = create_file_manifest(file_path, _nid_hex())
         file_id = manifest["file_id"]
 
         # 1. Enregistrer localement
         node_data["transfer_manager"].register_file(file_path, file_id)
 
-        # 2. Sauvegarder manifest.json pour que les pairs puissent télécharger
-        manifests_dir = os.path.join(_ROOT, "manifests")
-        os.makedirs(manifests_dir, exist_ok=True)
-        manifest_fname = f"{manifest['filename']}_{file_id[:8]}.json"
-        manifest_path = os.path.join(manifests_dir, manifest_fname)
-        with open(manifest_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        # 2. Sauvegarder le manifest
+        #    ✅ os.path.splitext retire .pdf .txt .py etc.
+        base_name = os.path.splitext(os.path.basename(file_path))[0]
+        manifest_fname = f"{base_name}_{file_id[:8]}.json"
+        os.makedirs(_MANIFESTS, exist_ok=True)
+        manifest_path = os.path.join(_MANIFESTS, manifest_fname)
 
-        # 3. Broadcaster aux pairs connus
-        import socket as _socket
-        from network.packet import Packet, TYPE_MANIFEST
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
 
-        node_id_bytes = nid if isinstance(nid, bytes) else nid.encode()
+        print(f"[share] ✓ Manifest : {manifest_path}")
+
+        # 3. Broadcaster aux pairs
+        #    Méthode 1 : message chiffré via messaging_manager (préféré)
+        #    Méthode 2 : socket TCP brut TYPE_MANIFEST (fallback)
         peers = node_data["peer_table"].get_peers() if node_data["peer_table"] else {}
         sent_count = 0
+        manifest_json = json.dumps(manifest)
+
         for pid, pdata in peers.items():
-            try:
-                pkt = Packet(
-                    TYPE_MANIFEST, node_id_bytes, json.dumps(manifest).encode()
-                )
-                with _socket.create_connection(
-                    (pdata["ip"], pdata["tcp_port"]), timeout=2
-                ) as s:
-                    s.sendall(pkt.encode())
-                sent_count += 1
-            except Exception as be:
-                print(f"[share] broadcast → {pid[:8]}: {be}")
+            sent = False
+
+            # Méthode 1 — chiffré
+            if node_data["messaging_manager"]:
+                try:
+                    ok = node_data["messaging_manager"].send_encrypted_msg(
+                        pid, pdata["ip"], pdata["tcp_port"], f"MANIFEST:{manifest_json}"
+                    )
+                    if ok:
+                        sent = True
+                        sent_count += 1
+                        print(f"[share] → {pid[:8]} (chiffré) ✓")
+                except Exception as e1:
+                    print(f"[share] messaging failed {pid[:8]}: {e1}")
+
+            # Méthode 2 — fallback socket brut
+            if not sent:
+                try:
+                    import socket as _sock
+                    from network.packet import Packet, TYPE_MANIFEST
+
+                    pkt = Packet(TYPE_MANIFEST, _nid_bytes(), manifest_json.encode())
+                    with _sock.create_connection(
+                        (pdata["ip"], pdata["tcp_port"]), timeout=3
+                    ) as s:
+                        s.sendall(pkt.encode())
+                    sent_count += 1
+                    print(f"[share] → {pid[:8]} (socket brut) ✓")
+                except Exception as e2:
+                    print(f"[share] socket failed {pid[:8]}: {e2}")
 
         return jsonify(
             {
@@ -219,6 +303,7 @@ def share_file():
                 "size": manifest["size"],
                 "manifest_path": manifest_path,
                 "broadcast_to": sent_count,
+                "total_peers": len(peers),
             }
         )
 
@@ -229,55 +314,65 @@ def share_file():
         return jsonify({"error": str(e)}), 500
 
 
-# ── DOWNLOAD ──────────────────────────────────
+# ─────────────────────────────────────────────
+#  TÉLÉCHARGEMENT
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/download", methods=["POST"])
 def download_file():
-    data = request.json
-    manifest_path = (data or {}).get("path", "").strip()
-    if not manifest_path:
+    manifest_path = os.path.normpath((request.json or {}).get("path", "").strip())
+    if not manifest_path or manifest_path == ".":
         return jsonify({"error": 'Missing "path"'}), 400
     if not os.path.exists(manifest_path):
         return jsonify({"error": f"Manifest not found: {manifest_path}"}), 404
     if not node_data["transfer_manager"]:
         return jsonify({"error": "transfer_manager not initialized"}), 503
+
     try:
-        with open(manifest_path) as f:
+        with open(manifest_path, "r", encoding="utf-8") as f:
             manifest = json.load(f)
+
         peers = node_data["peer_table"].get_peers() if node_data["peer_table"] else {}
         threading.Thread(
             target=node_data["transfer_manager"].download_file,
             args=(manifest, peers),
             daemon=True,
         ).start()
+
         return jsonify(
             {"status": "Download started", "file_id": manifest.get("file_id")}
         ), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
-# ── MANIFESTS DISPONIBLES ─────────────────────
+# ─────────────────────────────────────────────
+#  MANIFESTS DISPONIBLES
+# ─────────────────────────────────────────────
+
+
 @app.route("/api/manifests")
 def list_manifests():
-    """Liste les manifests reçus/créés — utilisé par le frontend pour le bouton Download."""
-    manifests_dir = os.path.join(_ROOT, "manifests")
-    if not os.path.exists(manifests_dir):
+    if not os.path.exists(_MANIFESTS):
         return jsonify([])
     result = []
-    for fname in os.listdir(manifests_dir):
+    for fname in sorted(os.listdir(_MANIFESTS)):
         if not fname.endswith(".json"):
             continue
-        fpath = os.path.join(manifests_dir, fname)
+        fpath = os.path.join(_MANIFESTS, fname)
         try:
-            with open(fpath) as f:
+            with open(fpath, "r", encoding="utf-8") as f:
                 m = json.load(f)
             result.append(
                 {
                     "path": fpath,
-                    "filename": m.get("filename"),
-                    "size": m.get("size"),
-                    "file_id": m.get("file_id"),
+                    "filename": m.get("filename", fname),
+                    "size": m.get("size", 0),
+                    "file_id": m.get("file_id", ""),
                     "sender": m.get("sender_id", "")[:16],
+                    "nb_chunks": m.get("nb_chunks", 0),
                 }
             )
         except Exception:
@@ -285,7 +380,11 @@ def list_manifests():
     return jsonify(result)
 
 
-# ── LANCEMENT ─────────────────────────────────
+# ─────────────────────────────────────────────
+#  LANCEMENT
+# ─────────────────────────────────────────────
+
+
 def run_flask(port=5000):
     import logging
 
