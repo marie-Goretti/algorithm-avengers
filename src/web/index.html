@@ -3,523 +3,344 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Archipel - P2P Desktop</title>
-    <!-- ✅ FIX : Google Fonts supprimé — fonctionnait UNIQUEMENT avec internet -->
-    <!-- Remplacement par font-stack système 100% offline -->
+    <title>Archipel P2P</title>
+    <!-- Zéro dépendance externe — 100% offline -->
     <style>
         :root {
-            --bg-deep: #020617;
-            --bg-sidebar: #0f172a;
-            --bg-card: #1e293b;
-            --accent: #0ea5e9;
-            --accent-hover: #38bdf8;
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --msg-me: #0ea5e9;
-            --msg-other: #334155;
-            --radius: 12px;
-            /* ✅ Font stack système — zéro dépendance réseau */
-            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-                    Oxygen, Ubuntu, Cantarell, sans-serif;
+            --bg: #020617; --sidebar: #0f172a; --card: #1e293b;
+            --accent: #0ea5e9; --accent2: #38bdf8;
+            --txt: #f8fafc; --muted: #94a3b8;
+            --me: #0ea5e9; --other: #334155; --r: 12px;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: var(--font); background: var(--bg); color: var(--txt);
+               display: grid; grid-template-columns: 260px 1fr 300px; height: 100vh; overflow: hidden; }
 
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: var(--font);
-            background-color: var(--bg-deep);
-            color: var(--text-primary);
-            display: grid;
-            grid-template-columns: 280px 1fr 300px;
-            height: 100vh;
-            overflow: hidden;
-        }
+        /* Sidebars */
+        aside, .right { background: var(--sidebar); display: flex; flex-direction: column; padding: 16px; overflow-y: auto; }
+        aside { border-right: 1px solid #1e293b; }
+        .right { border-left: 1px solid #1e293b; }
+        h3 { font-size: 0.75rem; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; margin-top: 16px; }
+        h3:first-child { margin-top: 0; }
 
-        aside, section.files-sidebar {
-            background-color: var(--bg-sidebar);
-            border-right: 1px solid #1e293b;
-            display: flex;
-            flex-direction: column;
-            padding: 20px;
-        }
-        section.files-sidebar {
-            border-right: none;
-            border-left: 1px solid #1e293b;
-        }
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+        .tab { padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; background: var(--card); transition: all 0.15s; }
+        .tab.active { background: var(--accent); color: #000; font-weight: 700; }
 
-        h2 { font-size: 1.1rem; margin-top: 0; margin-bottom: 20px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; }
+        /* Peer cards */
+        .peer-card { background: var(--card); padding: 10px; border-radius: var(--r); margin-bottom: 6px;
+                     cursor: pointer; border: 1px solid transparent; transition: all 0.15s; }
+        .peer-card:hover { border-color: var(--accent); }
+        .peer-card.active { border-color: var(--accent); background: #0ea5e918; }
+        .peer-name { font-weight: 600; font-size: 0.85rem; }
+        .peer-info { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
-        .peer-list { flex-grow: 1; overflow-y: auto; }
-        .peer-card {
-            background: var(--bg-card);
-            padding: 12px;
-            border-radius: var(--radius);
-            margin-bottom: 10px;
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
-        }
-        .peer-card:hover { border-color: var(--accent); background: #334155; }
-        .peer-card.active { border-color: var(--accent); background: #0ea5e922; }
-        .peer-name { font-weight: 600; font-size: 0.9rem; }
-        .peer-info { font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; }
+        /* Main chat */
+        main { display: flex; flex-direction: column; padding: 16px; }
+        .chat-header { display: flex; justify-content: space-between; align-items: center;
+                       padding-bottom: 12px; border-bottom: 1px solid #1e293b; margin-bottom: 12px; }
+        .chat-title { font-weight: 600; font-size: 1.05rem; }
+        #badge { font-size: 0.7rem; padding: 3px 10px; border-radius: 20px; background: #22c55e18; color: #22c55e; }
+        #badge.off { background: #ef444418; color: #ef4444; }
 
-        main {
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-deep);
-            padding: 20px;
-        }
-        #chat-header {
-            padding-bottom: 15px;
-            border-bottom: 1px solid #1e293b;
-            margin-bottom: 15px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        #chat-title { font-weight: 600; font-size: 1.2rem; }
+        .chat-box { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px; }
+        .b { max-width: 74%; padding: 9px 13px; border-radius: var(--r); font-size: 0.9rem; line-height: 1.45; word-break: break-word; }
+        .b.me    { align-self: flex-end;   background: var(--me);    color: #000; border-bottom-right-radius: 3px; }
+        .b.other { align-self: flex-start; background: var(--other); border-bottom-left-radius: 3px; }
+        .b.sys   { align-self: center; background: transparent; color: var(--muted); font-size: 0.72rem; font-style: italic; }
 
-        .chat-container {
-            flex-grow: 1;
-            overflow-y: auto;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .msg-bubble {
-            max-width: 75%;
-            padding: 10px 15px;
-            border-radius: var(--radius);
-            font-size: 0.95rem;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .msg-bubble.me {
-            align-self: flex-end;
-            background-color: var(--msg-me);
-            color: #000;
-            border-bottom-right-radius: 2px;
-        }
-        .msg-bubble.other {
-            align-self: flex-start;
-            background-color: var(--msg-other);
-            color: var(--text-primary);
-            border-bottom-left-radius: 2px;
-        }
-        .msg-bubble.system {
-            align-self: center;
-            background: transparent;
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-            font-style: italic;
-        }
+        .input-row { background: var(--card); border-radius: var(--r); padding: 8px; display: flex; gap: 8px; margin-top: 12px; }
+        input { background: transparent; border: none; color: var(--txt); padding: 8px; flex: 1; outline: none; font-size: 0.9rem; font-family: var(--font); }
+        btn, button { background: var(--accent); color: #000; border: none; border-radius: 8px;
+                      padding: 8px 14px; font-weight: 700; cursor: pointer; font-family: var(--font); font-size: 0.82rem; transition: background 0.15s; }
+        button:hover { background: var(--accent2); }
+        button.g { background: #22c55e; } button.g:hover { background: #16a34a; }
+        button.sm { padding: 4px 9px; font-size: 0.72rem; }
 
-        .input-wrapper {
-            background: var(--bg-card);
-            border-radius: var(--radius);
-            padding: 10px;
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        input {
-            background: transparent;
-            border: none;
-            color: white;
-            padding: 10px;
-            flex-grow: 1;
-            outline: none;
-            font-size: 0.95rem;
-        }
-        button {
-            background: var(--accent);
-            color: #000;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 18px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        button:hover { background: var(--accent-hover); }
+        /* File cards */
+        .fc { background: var(--card); padding: 10px; border-radius: 8px; margin-bottom: 6px; font-size: 0.82rem; }
+        .fc-name { font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .fc-meta { font-size: 0.68rem; color: var(--muted); display: flex; justify-content: space-between; margin-top: 3px; }
+        .fc-id   { font-family: monospace; font-size: 0.65rem; color: #475569; margin-top: 2px; }
 
-        .file-list { overflow-y: auto; }
-        .file-card {
-            background: var(--bg-card);
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .file-name { font-weight: 600; color: var(--accent); }
-        .file-id { font-size: 0.7rem; color: var(--text-secondary); font-family: monospace; }
+        /* Forms */
+        .form-col { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+        .form-col input { background: var(--card); border-radius: 8px; padding: 7px 10px; }
 
-        .tabs { display: flex; gap: 5px; margin-bottom: 20px; }
-        .tab {
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8rem;
-            background: #1e293b;
-        }
-        .tab.active { background: var(--accent); color: #000; font-weight: bold; }
+        /* Node info */
+        .node-info { margin-top: auto; padding-top: 12px; border-top: 1px solid #1e293b; font-size: 0.72rem; }
+        #nid  { color: var(--muted); font-family: monospace; font-size: 0.6rem; word-break: break-all; margin-top: 2px; }
+        #pcnt { color: var(--muted); font-size: 0.68rem; margin-top: 3px; }
 
-        /* Indicateur de connexion */
-        #connection-status {
-            font-size: 0.75rem;
-            padding: 4px 10px;
-            border-radius: 20px;
-            background: #22c55e22;
-            color: #22c55e;
-        }
-        #connection-status.offline { background: #ef444422; color: #ef4444; }
-
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
 <body>
 
-    <aside>
-        <h2>Network</h2>
-        <div class="tabs">
-            <div class="tab active" id="tab-peers" onclick="switchMode('p2p')">Peers</div>
-            <div class="tab" id="tab-gemini" onclick="switchMode('gemini')">Gemini AI</div>
-        </div>
-        <div class="peer-list" id="peer-list">
-            <div style="color: var(--text-secondary); font-size: 0.8rem;">
-                Scanning network...
-            </div>
-        </div>
-        <div style="margin-top: 20px; font-size: 0.8rem;">
-            <strong>Your Node ID:</strong>
-            <div id="my-node-id" style="color: var(--text-secondary); font-size: 0.65rem; word-break: break-all;">
-                Loading...
-            </div>
-            <div id="peer-count" style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 4px;">
-                0 peers
-            </div>
-        </div>
-    </aside>
+<!-- ── LEFT : Peers ── -->
+<aside>
+    <div class="tabs">
+        <div class="tab active" id="tp" onclick="switchMode('p2p')">Peers</div>
+        <div class="tab" id="tg" onclick="switchMode('gemini')">Gemini AI</div>
+    </div>
+    <div id="peer-list"><div class="b sys">Scanning LAN...</div></div>
+    <div class="node-info">
+        <strong>Your Node ID</strong>
+        <div id="nid">Loading...</div>
+        <div id="pcnt">0 peer(s)</div>
+    </div>
+</aside>
 
-    <main>
-        <div id="chat-header">
-            <div id="chat-title">Select a Peer</div>
-            <div id="connection-status">● LAN</div>
-        </div>
-        <div class="chat-container" id="chat-box">
-            <div class="msg-bubble system">
-                Archipel P2P — réseau local uniquement. Sélectionne un pair pour démarrer.
-            </div>
-        </div>
-        <div class="input-wrapper">
-            <input type="text" id="msg-input"
-                   placeholder="Type a message..."
-                   onkeypress="handleKeyPress(event)">
-            <button onclick="handleSend()">Send</button>
-        </div>
-    </main>
+<!-- ── CENTER : Chat ── -->
+<main>
+    <div class="chat-header">
+        <div class="chat-title" id="ctitle">Select a Peer</div>
+        <div id="badge">● LAN</div>
+    </div>
+    <div class="chat-box" id="chat-box">
+        <div class="b sys">Archipel P2P — réseau local. Sélectionne un pair.</div>
+    </div>
+    <div class="input-row">
+        <input id="mi" placeholder="Type a message..." onkeypress="if(event.key==='Enter')send()">
+        <button onclick="send()">Send</button>
+    </div>
+</main>
 
-    <section class="files-sidebar">
-        <h2>Shared Files</h2>
-        <div class="file-list" id="file-list"></div>
+<!-- ── RIGHT : Files ── -->
+<section class="right">
 
-        <div style="border-top: 1px solid #1e293b; margin-top: 20px; padding-top: 20px;">
-            <h2>Actions</h2>
-            <div class="input-wrapper" style="flex-direction: column; gap: 5px;">
-                <input type="text" id="share-path" placeholder="Local path to share...">
-                <button onclick="shareFile()" style="width: 100%;">Share File</button>
-            </div>
-            <div class="input-wrapper" style="flex-direction: column; gap: 5px; margin-top: 10px;">
-                <input type="text" id="download-path" placeholder="Path to manifest.json...">
-                <button onclick="downloadFile()" style="width: 100%; background: #22c55e;">
-                    Download
-                </button>
-            </div>
-        </div>
-    </section>
+    <h3>📂 My Shared Files</h3>
+    <div id="my-files"><div class="b sys">No files shared yet.</div></div>
 
-    <script>
-        // ─────────────────────────────────────────────
-        //  ÉTAT DE L'APPLICATION
-        //  ✅ FIX : plus de localStorage — tout est en mémoire RAM
-        //  Les messages sont reçus via polling /api/status toutes les 2s
-        // ─────────────────────────────────────────────
-        let currentMode   = 'p2p';
-        let currentPeerId = null;
-        let knownPeerIds  = [];
+    <h3>📥 Available to Download</h3>
+    <div id="avail-files"><div class="b sys">No manifests found.</div></div>
 
-        // ✅ Historique en mémoire (pas localStorage)
-        // Format : { peerId: [{text, type, time}] }
-        const messageHistory = {};
+    <h3>Share a File</h3>
+    <div class="form-col">
+        <input id="share-path" placeholder="C:\path\to\file.txt">
+        <button onclick="shareFile()">📤 Share</button>
+    </div>
 
-        const chatBox   = document.getElementById('chat-box');
-        const peerList  = document.getElementById('peer-list');
-        const fileList  = document.getElementById('file-list');
-        const chatTitle = document.getElementById('chat-title');
-        const msgInput  = document.getElementById('msg-input');
+    <h3>Download (manual)</h3>
+    <div class="form-col">
+        <input id="dl-path" placeholder="manifests/file_abc123.json">
+        <button class="g" onclick="dlManual()">📥 Download</button>
+    </div>
 
-        // ─────────────────────────────────────────────
-        //  NAVIGATION
-        // ─────────────────────────────────────────────
+</section>
 
-        function switchMode(mode) {
-            currentMode = mode;
-            document.getElementById('tab-peers').classList.toggle('active', mode === 'p2p');
-            document.getElementById('tab-gemini').classList.toggle('active', mode === 'gemini');
+<script>
+// ─── État ────────────────────────────────────
+let mode      = 'p2p';
+let curPeer   = null;
+let peers     = {};
+const history = {};   // RAM seulement — pas localStorage
 
-            if (mode === 'gemini') {
-                currentPeerId = 'gemini';
-                chatTitle.textContent = 'Gemini AI Assistant';
-                renderChat('gemini');
-            } else {
-                currentPeerId = null;
-                chatTitle.textContent = 'Select a Peer';
-                chatBox.innerHTML = '<div class="msg-bubble system">Pick a peer to start chatting.</div>';
-            }
-        }
+const chatBox   = document.getElementById('chat-box');
+const peerList  = document.getElementById('peer-list');
+const myFiles   = document.getElementById('my-files');
+const availFiles= document.getElementById('avail-files');
 
-        function selectPeer(peerId) {
-            currentMode   = 'p2p';
-            currentPeerId = peerId;
-            chatTitle.textContent = 'Chat — ' + peerId.substring(0, 16) + '...';
-            renderChat(peerId);
-            document.querySelectorAll('.peer-card').forEach(c => {
-                c.classList.toggle('active', c.getAttribute('data-id') === peerId);
-            });
-        }
+// ─── Navigation ──────────────────────────────
+function switchMode(m) {
+    mode = m;
+    document.getElementById('tp').classList.toggle('active', m === 'p2p');
+    document.getElementById('tg').classList.toggle('active', m === 'gemini');
+    if (m === 'gemini') { curPeer = 'gemini'; document.getElementById('ctitle').textContent = 'Gemini AI'; renderChat('gemini'); }
+    else { curPeer = null; document.getElementById('ctitle').textContent = 'Select a Peer'; chatBox.innerHTML = '<div class="b sys">Pick a peer.</div>'; }
+}
 
-        // ─────────────────────────────────────────────
-        //  GESTION DE L'HISTORIQUE (mémoire seulement)
-        // ─────────────────────────────────────────────
+function selectPeer(id) {
+    mode = 'p2p'; curPeer = id;
+    document.getElementById('ctitle').textContent = id.substring(0,16) + '...';
+    renderChat(id);
+    document.querySelectorAll('.peer-card').forEach(c => c.classList.toggle('active', c.dataset.id === id));
+}
 
-        function getHistory(id) {
-            return messageHistory[id] || [];
-        }
+// ─── Historique ──────────────────────────────
+function push(id, text, type) {
+    if (!history[id]) history[id] = [];
+    history[id].push({text, type});
+    if (curPeer === id) bubble(text, type);
+}
 
-        function pushMessage(id, text, type) {
-            if (!messageHistory[id]) messageHistory[id] = [];
-            messageHistory[id].push({ text, type, time: Date.now() });
+function renderChat(id) {
+    chatBox.innerHTML = '';
+    (history[id] || []).forEach(m => bubble(m.text, m.type));
+    if (!history[id]?.length) chatBox.innerHTML = `<div class="b sys">${id === 'gemini' ? 'Ask Gemini anything.' : 'Start of conversation.'}</div>`;
+}
 
-            // Si la conversation est active, afficher le message
-            if (currentPeerId === id) {
-                addBubble(text, type);
-            }
-        }
+function bubble(text, type) {
+    const d = document.createElement('div');
+    d.className = `b ${type}`;
+    d.textContent = text;
+    chatBox.appendChild(d);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
 
-        function renderChat(id) {
-            chatBox.innerHTML = '';
-            const history = getHistory(id);
-            if (history.length === 0) {
-                chatBox.innerHTML = `<div class="msg-bubble system">
-                    ${id === 'gemini' ? 'Ask Gemini anything.' : 'Start of conversation.'}
+function sysmsg(text) { bubble(text, 'sys'); }
+
+// ─── Envoi ───────────────────────────────────
+async function send() {
+    const text = document.getElementById('mi').value.trim();
+    if (!text || !curPeer) return;
+    document.getElementById('mi').value = '';
+
+    if (mode === 'gemini') {
+        push('gemini', text, 'me');
+        sysmsg('Thinking...');
+        try {
+            const r = await post('/api/gemini', {msg: text});
+            chatBox.querySelector('.b.sys:last-child')?.remove();
+            push('gemini', r.answer || r.error, 'other');
+        } catch { sysmsg('[Gemini offline]'); }
+    } else {
+        push(curPeer, text, 'me');
+        try {
+            const r = await postRaw('/api/send_msg', {to: curPeer.substring(0,8), msg: text});
+            if (!r.ok) { const e = await r.json(); sysmsg(`⚠ ${e.error}`); }
+        } catch { sysmsg('[Réseau local inaccessible]'); }
+    }
+}
+
+// ─── Share ───────────────────────────────────
+async function shareFile() {
+    const path = document.getElementById('share-path').value.trim();
+    if (!path) return;
+    try {
+        const d = await post('/api/share', {path});
+        if (d.error) { sysmsg(`✗ ${d.error}`); return; }
+        sysmsg(`✓ "${d.filename}" partagé (${d.nb_chunks} chunks, ${fmtSize(d.size)}) → ${d.broadcast_to} pair(s)`);
+        sysmsg(`📋 Manifest sauvegardé : ${d.manifest_path}`);
+        document.getElementById('share-path').value = '';
+        await refreshFiles();  // mise à jour immédiate
+    } catch(e) { sysmsg(`✗ ${e}`); }
+}
+
+// ─── Download ────────────────────────────────
+async function dlManifest(path) {
+    try {
+        const d = await post('/api/download', {path});
+        sysmsg(d.error ? `✗ ${d.error}` : `⬇ Téléchargement démarré (${d.file_id?.substring(0,16)}...)`);
+    } catch(e) { sysmsg(`✗ ${e}`); }
+}
+
+async function dlManual() {
+    const path = document.getElementById('dl-path').value.trim();
+    if (!path) return;
+    await dlManifest(path);
+    document.getElementById('dl-path').value = '';
+}
+
+// ─── Refresh fichiers ─────────────────────────
+async function refreshFiles() {
+    // Mes fichiers partagés
+    try {
+        const files = await get('/api/files');
+        const entries = Object.entries(files);
+        myFiles.innerHTML = '';
+        if (!entries.length) { myFiles.innerHTML = '<div class="b sys">No files shared yet.</div>'; }
+        else entries.forEach(([id, info]) => {
+            const fname = info.filename || id.substring(0,8);
+            const size  = info.size ? fmtSize(info.size) : '';
+            myFiles.innerHTML += `
+                <div class="fc">
+                    <div class="fc-name" title="${fname}">${fname}</div>
+                    <div class="fc-meta"><span>${size}</span>
+                        <button class="sm" onclick="navigator.clipboard?.writeText('${id}')">Copy ID</button>
+                    </div>
+                    <div class="fc-id">${id.substring(0,20)}...</div>
                 </div>`;
-                return;
+        });
+    } catch(e) { console.error('refreshFiles:', e); }
+
+    // Manifests disponibles (à télécharger)
+    try {
+        const manifests = await get('/api/manifests');
+        availFiles.innerHTML = '';
+        if (!manifests.length) { availFiles.innerHTML = '<div class="b sys">No manifests found.</div>'; }
+        else manifests.forEach(m => {
+            availFiles.innerHTML += `
+                <div class="fc">
+                    <div class="fc-name">${m.filename || '?'}</div>
+                    <div class="fc-meta">
+                        <span>${m.size ? fmtSize(m.size) : ''}</span>
+                        <button class="sm g" onclick="dlManifest('${m.path}')">⬇ Download</button>
+                    </div>
+                    <div class="fc-id">${(m.file_id||'').substring(0,20)}...</div>
+                </div>`;
+        });
+    } catch(e) { console.error('refreshManifests:', e); }
+}
+
+// ─── Polling ─────────────────────────────────
+async function poll() {
+    try {
+        // Peers
+        peers = await get('/api/peers');
+        const pids = Object.keys(peers);
+        peerList.innerHTML = '';
+        if (!pids.length) { peerList.innerHTML = '<div class="b sys">Scanning LAN...</div>'; }
+        else pids.forEach(id => {
+            const d = peers[id];
+            const div = document.createElement('div');
+            div.className = `peer-card ${curPeer === id ? 'active' : ''}`;
+            div.dataset.id = id;
+            div.onclick = () => selectPeer(id);
+            div.innerHTML = `<div class="peer-name">${id.substring(0,14)}...</div><div class="peer-info">${d.ip}:${d.tcp_port}</div>`;
+            peerList.appendChild(div);
+        });
+
+        // Status + messages entrants
+        const s = await get('/api/status');
+        document.getElementById('nid').textContent  = s.node_id || '—';
+        document.getElementById('pcnt').textContent = `${s.peer_count || 0} peer(s) on LAN`;
+
+        (s.new_messages || []).forEach(m => {
+            const match = m.match(/^from ([^:]+): (.+)$/);
+            if (match) {
+                const prefix = match[1].trim();
+                const text   = match[2].trim();
+                const fullId = pids.find(p => p.startsWith(prefix)) || prefix;
+                push(fullId, text, 'other');
             }
-            history.forEach(m => addBubble(m.text, m.type));
-        }
+        });
 
-        function addBubble(text, type) {
-            const bubble = document.createElement('div');
-            bubble.className = `msg-bubble ${type}`;
-            bubble.textContent = text;
-            chatBox.appendChild(bubble);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+        // Files
+        await refreshFiles();
 
-        // ─────────────────────────────────────────────
-        //  ENVOI DE MESSAGE
-        // ─────────────────────────────────────────────
+        document.getElementById('badge').className   = '';
+        document.getElementById('badge').textContent = '● LAN';
+    } catch(e) {
+        document.getElementById('badge').className   = 'off';
+        document.getElementById('badge').textContent = '● Offline';
+    }
+}
 
-        async function handleSend() {
-            const text = msgInput.value.trim();
-            if (!text || !currentPeerId) return;
-            msgInput.value = '';
+// ─── Helpers HTTP ────────────────────────────
+async function get(url) {
+    const r = await fetch(url);
+    return r.json();
+}
+async function post(url, body) {
+    const r = await postRaw(url, body);
+    return r.json();
+}
+async function postRaw(url, body) {
+    return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+}
 
-            if (currentMode === 'gemini') {
-                // ── Gemini
-                pushMessage('gemini', text, 'me');
-                addBubble('IA is thinking...', 'system');
-                try {
-                    const res = await fetch('/api/gemini', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ msg: text })
-                    });
-                    const data = await res.json();
-                    // Retirer le "thinking..."
-                    const bubbles = chatBox.querySelectorAll('.msg-bubble.system');
-                    if (bubbles.length) bubbles[bubbles.length - 1].remove();
-                    pushMessage('gemini', data.answer || data.error, 'other');
-                } catch (e) {
-                    addBubble('[Gemini indisponible — mode offline]', 'system');
-                }
+function fmtSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+    return (b/1024/1024).toFixed(1) + ' MB';
+}
 
-            } else {
-                // ── P2P chiffré
-                pushMessage(currentPeerId, text, 'me');
-                try {
-                    const res = await fetch('/api/send_msg', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            to: currentPeerId.substring(0, 8),
-                            msg: text
-                        })
-                    });
-                    if (!res.ok) {
-                        const err = await res.json();
-                        addBubble(`[Erreur envoi : ${err.error}]`, 'system');
-                    }
-                } catch (e) {
-                    addBubble('[Réseau local inaccessible]', 'system');
-                }
-            }
-        }
-
-        function handleKeyPress(e) {
-            if (e.key === 'Enter') handleSend();
-        }
-
-        // ─────────────────────────────────────────────
-        //  PARTAGE / TÉLÉCHARGEMENT
-        // ─────────────────────────────────────────────
-
-        async function shareFile() {
-            const path = document.getElementById('share-path').value.trim();
-            if (!path) return;
-            try {
-                const res = await fetch('/api/share', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    addBubble(`✓ Fichier partagé à ${data.broadcast_to} pair(s)`, 'system');
-                    document.getElementById('share-path').value = '';
-                } else {
-                    addBubble(`✗ Erreur : ${data.error}`, 'system');
-                }
-            } catch (e) {
-                addBubble('[Erreur partage fichier]', 'system');
-            }
-        }
-
-        async function downloadFile() {
-            const path = document.getElementById('download-path').value.trim();
-            if (!path) return;
-            try {
-                const res = await fetch('/api/download', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ path })
-                });
-                if (res.ok) {
-                    addBubble(`⬇ Téléchargement démarré`, 'system');
-                    document.getElementById('download-path').value = '';
-                } else {
-                    const data = await res.json();
-                    addBubble(`✗ Erreur : ${data.error}`, 'system');
-                }
-            } catch (e) {
-                addBubble('[Erreur téléchargement]', 'system');
-            }
-        }
-
-        // ─────────────────────────────────────────────
-        //  POLLING — reçoit pairs, fichiers, messages
-        //  ✅ C'est ici que les messages ENTRANTS apparaissent
-        //  Le backend Flask vide sa queue à chaque appel /api/status
-        // ─────────────────────────────────────────────
-
-        async function poll() {
-            try {
-                // 1. Mise à jour des pairs
-                const pRes  = await fetch('/api/peers');
-                const peers = await pRes.json();
-                knownPeerIds = Object.keys(peers);
-
-                peerList.innerHTML = '';
-                if (knownPeerIds.length === 0) {
-                    peerList.innerHTML = '<div style="color:var(--text-secondary);font-size:0.8rem;">Scanning LAN...</div>';
-                } else {
-                    knownPeerIds.forEach(id => {
-                        const data = peers[id];
-                        const div  = document.createElement('div');
-                        div.className = `peer-card ${currentPeerId === id ? 'active' : ''}`;
-                        div.setAttribute('data-id', id);
-                        div.onclick = () => selectPeer(id);
-                        div.innerHTML = `
-                            <div class="peer-name">${id.substring(0, 12)}...</div>
-                            <div class="peer-info">${data.ip}:${data.tcp_port}</div>
-                        `;
-                        peerList.appendChild(div);
-                    });
-                }
-
-                // 2. Mise à jour des fichiers partagés
-                const fRes  = await fetch('/api/files');
-                const files = await fRes.json();
-                fileList.innerHTML = '';
-                Object.entries(files).forEach(([id, path]) => {
-                    const name = path.split('/').pop().split('\\').pop();
-                    fileList.innerHTML += `
-                        <div class="file-card">
-                            <div class="file-name">${name}</div>
-                            <div class="file-id">${id}</div>
-                        </div>
-                    `;
-                });
-
-                // 3. Statut + messages entrants
-                const sRes   = await fetch('/api/status');
-                const status = await sRes.json();
-
-                if (status.node_id) {
-                    document.getElementById('my-node-id').textContent = status.node_id;
-                }
-                document.getElementById('peer-count').textContent =
-                    `${status.peer_count || 0} peer(s) on LAN`;
-
-                // ✅ Messages entrants — reçus via la queue du backend Python
-                // Le backend appelle node_data['new_messages'].put("from <id>: <text>")
-                // quand un message chiffré est déchiffré avec succès
-                if (status.new_messages && status.new_messages.length > 0) {
-                    status.new_messages.forEach(m => {
-                        // Format attendu : "from <id_prefix>: <texte>"
-                        const match = m.match(/^from ([^:]+): (.+)$/);
-                        if (match) {
-                            const senderPrefix = match[1].trim();
-                            const text         = match[2].trim();
-                            const fullId = knownPeerIds.find(
-                                pid => pid.startsWith(senderPrefix)
-                            ) || senderPrefix;
-                            pushMessage(fullId, text, 'other');
-                        }
-                    });
-                }
-
-                // Indicateur de connexion LAN
-                document.getElementById('connection-status').className = '';
-                document.getElementById('connection-status').textContent = '● LAN';
-
-            } catch (e) {
-                console.error('Polling error:', e);
-                document.getElementById('connection-status').className = 'offline';
-                document.getElementById('connection-status').textContent = '● Offline';
-            }
-        }
-
-        // Démarrage du polling toutes les 2 secondes
-        setInterval(poll, 2000);
-        poll();
-    </script>
+setInterval(poll, 2000);
+poll();
+</script>
 </body>
 </html>
