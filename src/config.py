@@ -36,6 +36,7 @@ class TLVType:
     PING = 0x02
     PONG = 0x03
     REQUEST_CHUNK = 0x04
+    CHUNK_DATA = 0x05
 
 
 ARCHIPEL_MAGIC = b"ARCH"
