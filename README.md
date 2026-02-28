@@ -13,6 +13,28 @@
   - [Gestion des Clés PKI (Identité et Sécurité)](#gestion-des-clés-pki-identité-et-sécurité)
 <!--toc:end-->
 
+## Démarrage
+
+Pour démarrer le projet, vous devez d'abord installer les dépendances :
+
+```bash
+pip install -r requirements.txt
+```
+
+Ensuite, vous pouvez lancer le script `main.py` pour démarrer le nœud Archipel :
+
+```bash
+python main.py
+```
+
+Vous pouvez spécifier des arguments également:
+
+- `--name <name>`:  Nom du nœud Archipel (par défaut : `Archipel`).
+- `--port <port>`:  Port sur lequel le nœud Archipel écoute (par défaut : `6000`).
+- `--web`:  Lance le serveur Web (par défaut : `False`).
+- `--web-port <port>`:  Port sur lequel le serveur Web écoute (par défaut : `5000`).
+- `--no-ai`:  Désactive l'IA (par défaut : `False`).
+
 ## Description du projet
 
 ### Archipel : Le Protocole P2P Souverain
