@@ -46,6 +46,31 @@ class TCPServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         conn = PeerConnection(reader=reader, writer=writer)
+        
+        try:
+            # 1. Générer clé éphémère pour ce handshake
+            ephemeral_key = PrivateKey.generate()
+            
+            # 2. Envoyer notre clé publique éphémère
+            writer.write(ephemeral_key.public_key.encode())
+            await writer.drain()
+            
+            # 3. Recevoir la clé publique éphémère du pair
+            peer_public_bytes = await reader.readexactly(32)
+            peer_public_key = PublicKey(peer_public_bytes)
+            
+            # 4. Calculer la clé secrète partagée (Shared Secret)
+            shared_key = ephemeral_key.shared_key(peer_public_key)
+            
+            # 5. Initialiser le chiffrement symétrique (AES-GCM via PyNaCl)
+            conn.box = nacl.secret.SecretBox(shared_key)
+            print("Tunnel chiffré établi.")
+            
+        except Exception as e:
+            print(f"Échec handshake : {e}")
+            writer.close()
+            return
+        
         keepalive_task = asyncio.create_task(self._keepalive_loop(conn))
         try:
             while self.running:
