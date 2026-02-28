@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Archipel Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --accent: #38bdf8;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            margin: 0;
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            height: 100vh;
+        }
+        aside, main, section {
+            padding: 20px;
+            border-right: 1px solid #334155;
+            overflow-y: auto;
+        }
+        h2 { border-bottom: 2px solid var(--accent); padding-bottom: 10px; }
+        .card {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border: 1px solid #334155;
+        }
+        .peer-item, .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; }
+        
+        /* Mini-chat styles */
+        #chat-window {
+            height: 70vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 5px;
+        }
+        .msg { margin-bottom: 8px; padding: 5px 10px; border-radius: 4px; max-width: 80%; }
+        .msg.me { background: var(--accent); color: #000; align-self: flex-end; margin-left: auto; }
+        .msg.other { background: #334155; align-self: flex-start; }
+        
+        #chat-input-area { display: flex; gap: 5px; }
+        input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            flex-grow: 1;
+        }
+        button {
+            background: var(--accent);
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <aside>
+        <h2>Peers</h2>
+        <div id="peer-list"></div>
+    </aside>
+    
+    <main>
+        <h2>Shared Files</h2>
+        <div id="file-list"></div>
+    </main>
+
+    <section>
+        <h2>Mini-Chat</h2>
+        <div id="chat-window">
+            <div id="chat-messages"></div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-to" placeholder="Peer ID (prefix)">
+                <input type="text" id="chat-msg" placeholder="Message...">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const chatMessages = document.getElementById('chat-messages');
+        const peerList = document.getElementById('peer-list');
+        const fileList = document.getElementById('file-list');
+
+        // Initial load of history from localStorage
+        function loadHistory() {
+            const history = JSON.parse(localStorage.getItem('archipel_chat_history') || '[]');
+            chatMessages.innerHTML = '';
+            history.forEach(m => addMessageToUI(m.text, m.type));
+        }
+
+        function addMessageToUI(text, type) {
+            const div = document.createElement('div');
+            div.className = `msg ${type}`;
+            div.textContent = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const to = document.getElementById('chat-to').value;
+            const msg = document.getElementById('chat-msg').value;
+            if(!to || !msg) return;
+
+            try {
+                const res = await fetch('/api/send_msg', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({to, msg})
+                });
+                if(res.ok) {
+                    const history = JSON.parse(localStorage.getItem('archipel_chat_history') || '[]');
+                    const newMsg = {text: `To ${to}: ${msg}`, type: 'me'};
+                    history.push(newMsg);
+                    localStorage.setItem('archipel_chat_history', JSON.stringify(history));
+                    addMessageToUI(newMsg.text, 'me');
+                    document.getElementById('chat-msg').value = '';
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function poll() {
+            try {
+                // Get Peers
+                const pRes = await fetch('/api/peers');
+                const peers = await pRes.json();
+                peerList.innerHTML = '';
+                Object.entries(peers).forEach(([id, data]) => {
+                    peerList.innerHTML += `
+                        <div class="card peer-item">
+                            <span>${id.substring(0,8)} <br><small>${data.ip}:${data.tcp_port}</small></span>
+                            <div class="status-dot"></div>
+                        </div>
+                    `;
+                });
+
+                // Get Files
+                const fRes = await fetch('/api/files');
+                const files = await fRes.json();
+                fileList.innerHTML = '';
+                Object.entries(files).forEach(([id, path]) => {
+                    fileList.innerHTML += `
+                        <div class="card file-item">
+                            <span>${path.split('/').pop()}</span>
+                            <code>${id.substring(0,8)}</code>
+                        </div>
+                    `;
+                });
+
+                // Get incoming messages (status polling)
+                const sRes = await fetch('/api/status');
+                const status = await sRes.json();
+                if(status.new_messages && status.new_messages.length > 0) {
+                    const history = JSON.parse(localStorage.getItem('archipel_chat_history') || '[]');
+                    status.new_messages.forEach(m => {
+                        const newMsg = {text: m, type: 'other'};
+                        history.push(newMsg);
+                        addMessageToUI(m, 'other');
+                    });
+                    localStorage.setItem('archipel_chat_history', JSON.stringify(history));
+                }
+
+            } catch(e) { console.error(e); }
+        }
+
+        loadHistory();
+        setInterval(poll, 2000);
+        poll();
+    </script>
+</body>
+</html>

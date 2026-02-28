@@ -5,12 +5,13 @@ import struct
 from src.network.packet import Packet, TYPE_PEER_LIST, TYPE_HELLO, TYPE_HANDSHAKE_HELLO, TYPE_MSG, TYPE_CHUNK_REQ, TYPE_MANIFEST
 
 class TCPServer:
-    def __init__(self, node_id, port, peer_table, messaging_manager=None, transfer_manager=None):
+    def __init__(self, node_id, port, peer_table, messaging_manager=None, transfer_manager=None, web_queue=None):
         self.node_id = node_id
         self.port = port
         self.peer_table = peer_table
         self.messaging_manager = messaging_manager
         self.transfer_manager = transfer_manager
+        self.web_queue = web_queue
         self.running = False
         self.server_sock = None
 
@@ -53,7 +54,10 @@ class TCPServer:
                     if self.messaging_manager:
                         plaintext = self.messaging_manager.decrypt_msg(packet)
                         if plaintext:
-                            print(f"\n[NEW MESSAGE] from {packet.node_id.hex()[:8]}: {plaintext}")
+                            msg_text = f"from {packet.node_id.hex()[:8]}: {plaintext}"
+                            print(f"\n[NEW MESSAGE] {msg_text}")
+                            if self.web_queue:
+                                self.web_queue.put(msg_text)
                     conn.close()
                 elif packet.type == TYPE_CHUNK_REQ:
                     if self.transfer_manager:

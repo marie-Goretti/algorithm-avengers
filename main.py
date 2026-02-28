@@ -130,6 +130,8 @@ def main():
     parser.add_argument("--name", default="node")
     parser.add_argument("--port", type=int, default=7777)
     parser.add_argument("--no-ai", action="store_true")
+    parser.add_argument("--web", action="store_true", help="Enable web interface")
+    parser.add_argument("--web-port", type=int, default=5000)
     args = parser.parse_args()
 
     # Keys
@@ -144,7 +146,20 @@ def main():
     trust_table = TrustTable(f"{args.name}_trust.json")
     messaging_manager = MessagingManager(node_id, signing_key, trust_table)
     transfer_manager = TransferManager(node_id, signing_key, messaging_manager)
-    server = TCPServer(node_id, args.port, peer_table, messaging_manager, transfer_manager)
+    
+    # Web integration
+    web_queue = None
+    if args.web:
+        from src.web.app import node_data, run_flask
+        web_queue = node_data['new_messages']
+        node_data['peer_table'] = peer_table
+        node_data['transfer_manager'] = transfer_manager
+        node_data['messaging_manager'] = messaging_manager
+        node_data['node_id'] = node_id
+        threading.Thread(target=run_flask, args=(args.web_port,), daemon=True).start()
+        print(f"Web interface enabled on http://localhost:{args.web_port}")
+
+    server = TCPServer(node_id, args.port, peer_table, messaging_manager, transfer_manager, web_queue=web_queue)
     discovery = Discovery(node_id, args.port, peer_table)
     
     gemini = None
