@@ -12,6 +12,7 @@ node_data = {
     'peer_table': None,
     'transfer_manager': None,
     'messaging_manager': None,
+    'gemini_assistant': None,
     'node_id': None,
     'new_messages': queue.Queue()
 }
@@ -42,24 +43,62 @@ def get_status():
         'new_messages': msgs
     })
 
-@app.route('/api/send_msg', methods=['POST'])
-def send_msg():
+@app.route('/api/gemini', methods=['POST'])
+def gemini_query():
+    if not node_data['gemini_assistant']:
+        return "Gemini not enabled", 400
+    
     data = request.json
-    peer_prefix = data.get('to')
     text = data.get('msg')
-    
-    if not peer_prefix or not text:
-        return "Missing data", 400
+    if not text:
+        return "Missing message", 400
         
-    peers = node_data['peer_table'].get_peers()
-    target_pid = next((pid for pid in peers if pid.startswith(peer_prefix)), None)
+    answer = node_data['gemini_assistant'].query(text)
+    return jsonify({'answer': answer})
+
+@app.route('/api/share', methods=['POST'])
+def share_file():
+    data = request.json
+    file_path = data.get('path')
+    if not file_path or not os.path.exists(file_path):
+        return "File not found", 404
     
-    if target_pid:
-        pdata = peers[target_pid]
-        if node_data['messaging_manager'].send_encrypted_msg(target_pid, pdata["ip"], pdata["tcp_port"], text):
-            return "OK", 200
-            
-    return "Peer not found", 404
+    from src.transfer.chunking import create_file_manifest
+    manifest = create_file_manifest(file_path, node_data['node_id'].hex())
+    node_data['transfer_manager'].register_file(file_path, manifest["file_id"])
+    
+    # Broadcast to peers
+    from src.network.packet import Packet, TYPE_MANIFEST
+    import json
+    import socket
+    packet = Packet(TYPE_MANIFEST, node_data['node_id'], json.dumps(manifest).encode())
+    peers = node_data['peer_table'].get_peers()
+    for pid, pdata in peers.items():
+        try:
+            with socket.create_connection((pdata["ip"], pdata["tcp_port"]), timeout=1) as s:
+                s.sendall(packet.encode())
+        except: pass
+        
+    return jsonify({"status": "OK", "manifest": manifest})
+
+@app.route('/api/download', methods=['POST'])
+def download_file():
+    data = request.json
+    manifest_path = data.get('path')
+    if not manifest_path or not os.path.exists(manifest_path):
+        return "Manifest not found", 404
+        
+    import json
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+        
+    # Start download in background thread to not block Flask
+    import threading
+    threading.Thread(target=node_data['transfer_manager'].download_file, 
+                     args=(manifest, node_data['peer_table'].get_peers()), 
+                     daemon=True).start()
+    
+    return "Download started", 200
 
 def run_flask(port=5000):
     # Disable flask logging to keep CLI clean

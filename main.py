@@ -147,6 +147,12 @@ def main():
     messaging_manager = MessagingManager(node_id, signing_key, trust_table)
     transfer_manager = TransferManager(node_id, signing_key, messaging_manager)
     
+    gemini = None
+    if not args.no_ai:
+        gemini = GeminiAssistant()
+        if not gemini.enabled:
+            print("Warning: Gemini API Key not found. IA features might not work.")
+
     # Web integration
     web_queue = None
     if args.web:
@@ -155,18 +161,13 @@ def main():
         node_data['peer_table'] = peer_table
         node_data['transfer_manager'] = transfer_manager
         node_data['messaging_manager'] = messaging_manager
+        node_data['gemini_assistant'] = gemini
         node_data['node_id'] = node_id
         threading.Thread(target=run_flask, args=(args.web_port,), daemon=True).start()
         print(f"Web interface enabled on http://localhost:{args.web_port}")
 
     server = TCPServer(node_id, args.port, peer_table, messaging_manager, transfer_manager, web_queue=web_queue)
     discovery = Discovery(node_id, args.port, peer_table)
-    
-    gemini = None
-    if not args.no_ai:
-        gemini = GeminiAssistant()
-        if not gemini.enabled:
-            print("Warning: Gemini API Key not found. IA features might not work.")
     
     message_log = []
 
