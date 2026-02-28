@@ -56,6 +56,25 @@ def gemini_query():
     answer = node_data['gemini_assistant'].query(text)
     return jsonify({'answer': answer})
 
+@app.route('/api/send_msg', methods=['POST'])
+def send_msg():
+    data = request.json
+    peer_prefix = data.get('to')
+    text = data.get('msg')
+    
+    if not peer_prefix or not text:
+        return "Missing data", 400
+        
+    peers = node_data['peer_table'].get_peers()
+    target_pid = next((pid for pid in peers if pid.startswith(peer_prefix)), None)
+    
+    if target_pid:
+        pdata = peers[target_pid]
+        if node_data['messaging_manager'].send_encrypted_msg(target_pid, pdata["ip"], pdata["tcp_port"], text):
+            return "OK", 200
+            
+    return "Peer not found", 404
+
 @app.route('/api/share', methods=['POST'])
 def share_file():
     data = request.json
