@@ -22,7 +22,7 @@ class Node:
 
     async def start(self) -> None:
         self.running = True
-        print("Demarrage Archipel Sprint 1")
+        print("Demarrage Archipel")
         print(f"Node ID: {self.node_id.hex()[:16]}...")
         print(f"Port TCP: {self.port}")
         await asyncio.gather(
@@ -37,7 +37,9 @@ class Node:
             print(f"\n[{time.strftime('%H:%M:%S')}] Peers connectes: {len(peers)}")
             for p in peers:
                 age = int(time.time() - p.last_seen)
-                print(f"- {p.node_id[:12]} {p.ip}:{p.tcp_port} last_seen={age}s")
+                print(
+                    f"- {p.node_id[:12]} {p.ip}:{p.tcp_port} Vu pour la dernière fois={age}s"
+                )
             await asyncio.sleep(5)
 
     def stop(self) -> None:
@@ -45,20 +47,3 @@ class Node:
         self.discovery.stop()
         self.tcp_server.stop()
 
-
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="archipel-sprint1")
-    parser.add_argument("--port", type=int, default=Config.DEFAULT_TCP_PORT)
-    args = parser.parse_args()
-
-    node = Node(port=args.port)
-    try:
-        asyncio.run(node.start())
-    except KeyboardInterrupt:
-        node.stop()
-        print("\nArret noeud.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
