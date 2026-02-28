@@ -1,95 +1,124 @@
+import asyncio
+import json
 import socket
 import struct
 import time
-import threading
-import os
-from collections import defaultdict
+from typing import Optional
 
-# --- Configuration ---
-MULTICAST_GROUP = '239.255.42.99'
-MULTICAST_PORT = 6000
-TIMEOUT = 90  # Secondes avant de considérer un nœud comme mort
+from config import Config, PacketType, TLVType
+from network.packet import ArchipelPacket, PacketBuilder
+from network.peer_table import PeerTable
+from network.tlv import encode_tlv
 
-class PeerTable:
-    def __init__(self):
-        self.peers = {} # node_id -> {info}
-        self.lock = threading.Lock()
 
-    def update_peer(self, node_id, ip, tcp_port):
-        with self.lock:
-            self.peers[node_id] = {
-                'ip': ip,
-                'tcp_port': tcp_port,
-                'last_seen': time.time()
-            }
-            print(f"Pair mis à jour : {node_id.hex()[:8]}... ({ip}:{tcp_port})")
+class DiscoveryService:
+    def __init__(self, node_id: bytes, tcp_port: int, peer_table: PeerTable):
+        self.config = Config()
+        self.node_id = node_id
+        self.tcp_port = tcp_port
+        self.peer_table = peer_table
+        self.running = False
+        self.sock: Optional[socket.socket] = None
+        self.tasks: list[asyncio.Task] = []
 
-    def remove_dead_peers(self):
-        with self.lock:
-            now = time.time()
-            dead_peers = [nid for nid, info in self.peers.items() 
-                          if now - info['last_seen'] > TIMEOUT]
-            for nid in dead_peers:
-                del self.peers[nid]
-                print(f"Pair supprimé (timeout) : {nid.hex()[:8]}...")
+    async def start(self) -> None:
+        self.running = True
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.bind(("", self.config.MULTICAST_PORT))
 
-def start_discovery_service(node_id, tcp_port):
-    """Lance le thread de découverte UDP."""
-    
-    # 1. Socket pour écouter les HELLOs des autres
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((MULTICAST_GROUP, MULTICAST_PORT))
-    
-    mreq = struct.pack("4sl", socket.inet_aton(MULTICAST_GROUP), socket.INADDR_ANY)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        mreq = struct.pack(
+            "4sL", socket.inet_aton(self.config.MULTICAST_ADDR), socket.INADDR_ANY
+        )
+        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        self.sock.setblocking(False)
 
-    peer_table = PeerTable()
+        self.tasks = [
+            asyncio.create_task(self._send_hello_loop()),
+            asyncio.create_task(self._recv_loop()),
+            asyncio.create_task(self._cleanup_loop()),
+        ]
+        await asyncio.gather(*self.tasks, return_exceptions=True)
 
-    # Thread pour écouter les messages
-    def listen():
-        while True:
-            data, addr = sock.recvfrom(1024)
-            # Simplification: on suppose que HELLO est juste node_id + port
-            # Dans le vrai protocole, parser le binaire ici
+    async def _send_hello_loop(self) -> None:
+        while self.running:
+            payload = json.dumps(
+                {"tcp_port": self.tcp_port, "timestamp": int(time.time())}
+            ).encode("utf-8")
+            packet = PacketBuilder.build(PacketType.HELLO, self.node_id, payload)
+            self.sock.sendto(
+                packet, (self.config.MULTICAST_ADDR, self.config.MULTICAST_PORT)
+            )
+            print(f"[HELLO->] node={self.node_id.hex()[:12]} port={self.tcp_port}")
+            await asyncio.sleep(self.config.HELLO_INTERVAL)
+
+    async def _recv_loop(self) -> None:
+        loop = asyncio.get_event_loop()
+        while self.running:
             try:
-                # Format supposé: 32 bytes node_id, 2 bytes port (big endian)
-                peer_node_id = data[:32]
-                peer_tcp_port = struct.unpack('!H', data[32:34])[0]
-                peer_table.update_peer(peer_node_id, addr[0], peer_tcp_port)
-            except Exception as e:
-                print(f"Erreur parsing paquet : {e}")
+                data, addr = await loop.sock_recvfrom(self.sock, 4096)
+                await self._handle_packet(data, addr[0])
+            except OSError:
+                if not self.running:
+                    break
+                await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(0.1)
 
-    # Thread pour broadcaster son propre HELLO
-    def broadcast():
-        send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        send_sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        
-        # Structure paquet HELLO (type:1, node_id:32, port:2)
-        hello_packet = struct.pack('!B32sH', 1, node_id, tcp_port)
-        
-        while True:
-            send_sock.sendto(hello_packet, (MULTICAST_GROUP, MULTICAST_PORT))
-            time.sleep(30)
+    async def _handle_packet(self, data: bytes, sender_ip: str) -> None:
+        pkt = ArchipelPacket.parse(data)
+        if not pkt:
+            return
+        if pkt.node_id == self.node_id:
+            return
+        if pkt.pkt_type != PacketType.HELLO:
+            return
 
-    # Thread pour nettoyer les pairs morts
-    def cleanup():
-        while True:
-            time.sleep(10)
-            peer_table.remove_dead_peers()
+        try:
+            info = json.loads(pkt.payload.decode("utf-8"))
+            peer_port = int(info["tcp_port"])
+        except (ValueError, KeyError, json.JSONDecodeError):
+            return
 
-    threading.Thread(target=listen, daemon=True).start()
-    threading.Thread(target=broadcast, daemon=True).start()
-    threading.Thread(target=cleanup, daemon=True).start()
-    
-    return peer_table
+        peer_id = pkt.node_id.hex()
+        is_new = self.peer_table.upsert(peer_id, sender_ip, peer_port)
+        print(f"[HELLO<-] from={peer_id[:12]} ip={sender_ip}:{peer_port} new={is_new}")
+        if is_new:
+            await self._send_peer_list_unicast(sender_ip, peer_port)
 
-# --- Exemple de lancement ---
-if __name__ == "__main__":
-    # Chargez votre node_id généré au Sprint 0 ici
-    dummy_node_id = os.urandom(32) 
-    print(f"Lancement Nœud {dummy_node_id.hex()[:8]}...")
-    start_discovery_service(dummy_node_id, 7777)
-    
-    # Garder le main thread en vie
-    while True: time.sleep(1)
+    async def _send_peer_list_unicast(self, target_ip: str, target_port: int) -> None:
+        peers = [
+            {"node_id": p.node_id, "ip": p.ip, "tcp_port": p.tcp_port}
+            for p in self.peer_table.all()
+        ]
+        payload = json.dumps(peers).encode("utf-8")
+        packet = PacketBuilder.build(PacketType.PEER_LIST, self.node_id, payload)
+        tlv = encode_tlv(TLVType.PACKET, packet)
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(target_ip, target_port), timeout=3.0
+            )
+            writer.write(tlv)
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            return
+
+    async def _cleanup_loop(self) -> None:
+        while self.running:
+            removed = self.peer_table.remove_stale()
+            if removed:
+                print(f"[PEER_TABLE] removed stale peers: {removed}")
+            await asyncio.sleep(5)
+
+    def stop(self) -> None:
+        self.running = False
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()

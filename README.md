@@ -151,3 +151,26 @@ def generate_pki_keys():
 if __name__ == "__main__":
     generate_pki_keys()
 ```
+
+## Format des Paquets Binaires
+
+Tous les échanges réseau utilisent une sérialisation binaire compacte pour optimiser la bande passante.
+
+1. Header Commun (Tous paquets)
+
+Chaque paquet commence par un header de 33 octets permettant d'identifier le type de message et l'expéditeur.
+
+| Taille | Type | Description |
+| --------------- | --------------- | --------------- |
+| 1 octet | uint8 | Type de packet (`0x1`=HELLO, `0x2`=MSG, ...) |
+| 32 octets | bytes | NODE_ID (Clé publique ed25519 de l'expéditeur) |
+
+1. Paquet HELLO (`0x01`)
+
+Utilisé pour la découverte (UDP Multicast).
+
+| Taille | Type | Description |
+| --------------- | --------------- | --------------- |
+| 1 octet | uint8 | Type (`0x01`) |
+| 32 octets | bytes | NODE_ID de l'expéditeur |
+| 2 octets | uint16 | Port TCP sur lequel le noeud écoute |
